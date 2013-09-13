@@ -97,7 +97,8 @@ PRODUCT_COPY_FILES += \
 # Charger mode
 PRODUCT_PACKAGES += \
     charger \
-    charger_res_images
+    charger_res_images \
+	lights.x3
 
 PRODUCT_PACKAGES += \
     audio.a2dp.default \
