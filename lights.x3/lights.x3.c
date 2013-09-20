@@ -87,7 +87,7 @@ update_buttons_state(void)
 			" g_attention_on=%d\n",
 			g_buttons_on, g_battery_on, g_notifications_on, g_attention_on);
 	return write_int(BUTTONS_FILE,
-			g_buttons_on /*| g_battery_on*/ | g_notifications_on | g_attention_on);
+			g_buttons_on | g_battery_on | g_notifications_on | g_attention_on);
 }
 
 static int
