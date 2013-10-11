@@ -27,6 +27,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 /******************************************************************************/
 
@@ -83,11 +84,12 @@ set_light_backlight(struct light_device_t *dev,
 static int
 update_buttons_state(void)
 {
-	ALOGI("test_g_buttons_on=%d g_battery_on=%d g_notifications_on=%d"
+	ALOGI("NEW_g_buttons_on=%d g_battery_on=%d g_notifications_on=%d"
 			" g_attention_on=%d\n",
 			g_buttons_on, g_battery_on, g_notifications_on, g_attention_on);
 	return write_int(BUTTONS_FILE,
 			g_buttons_on | g_battery_on | g_notifications_on | g_attention_on);
+
 }
 
 static int
@@ -103,7 +105,16 @@ set_light_battery(struct light_device_t *dev,
 		struct light_state_t const *state)
 {
 	g_battery_on = rgb_to_bool(state->color);
-	return update_buttons_state();
+	if (g_battery_on == 1){	
+		write_int(BUTTONS_FILE,g_battery_on);
+		g_battery_on = 0;
+		sleep(2);
+		return write_int(BUTTONS_FILE,g_battery_on);
+	}
+	else{
+		return write_int(BUTTONS_FILE,g_battery_on);
+	}
+	//return update_buttons_state();
 }
 
 static int
