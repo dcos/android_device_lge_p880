@@ -1,7 +1,7 @@
 $(call inherit-product, $(SRC_TARGET_DIR)/product/languages_full.mk)
 
 # The gps config appropriate for this device
-$(call inherit-product, device/common/gps/gps_us_supl.mk)
+#$(call inherit-product, device/common/gps/gps_us_supl.mk)
 
 $(call inherit-product-if-exists, vendor/lge/p880/p880-vendor.mk)
 
@@ -42,6 +42,8 @@ PRODUCT_COPY_FILES += \
 ## GPS
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/configs/lge.cer:system/etc/cert/lge.cer \
+    $(LOCAL_PATH)/configs/gps.conf:system/etc/gps.conf \
+    $(LOCAL_PATH)/configs/SuplRootCert:system/etc/SuplRootCert \
     $(LOCAL_PATH)/configs/hmconfig.txt:system/etc/hmconfig.txt
 
 ## Input
@@ -94,6 +96,9 @@ PRODUCT_COPY_FILES += \
     frameworks/native/data/etc/android.hardware.usb.accessory.xml:system/etc/permissions/android.hardware.usb.accessory.xml \
     frameworks/native/data/etc/android.hardware.wifi.direct.xml:system/etc/permissions/android.hardware.wifi.direct.xml
 
+PRODUCT_COPY_FILES += \
+    $(LOCAL_PATH)/proprietaries/lge-ril.so:system/lib/lge-ril.so
+
 # Charger mode
 PRODUCT_PACKAGES += \
     charger \
@@ -124,4 +129,4 @@ PRODUCT_BUILD_PROP_OVERRIDES += BUILD_UTC_DATE=0
 PRODUCT_NAME := full_p880
 PRODUCT_DEVICE := p880
 PRODUCT_MODEL := LG-P880
-PRODUCT_MANUFACTURER := LGE
+PRODUCT_MANUFACTURER := lge
