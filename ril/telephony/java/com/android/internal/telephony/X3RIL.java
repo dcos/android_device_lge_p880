@@ -168,7 +168,7 @@ public class X3RIL extends RIL implements CommandsInterface {
             p.setDataPosition(dataPosition);
 
             // Forward responses that we are not overriding to the super class
-            return super.processSolicited(p);
+            super.processSolicited(p);
         }
 
 
