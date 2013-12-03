@@ -129,4 +129,8 @@ PRODUCT_COPY_FILES += \
 PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
     ro.boot.selinux=permissive
 
+# Disable strictmode when compiling -eng	
+PRODUCT_BUILD_PROP_OVERRIDES += \
+	persist.sys.strictmode.disable=1
+	
 $(call inherit-product-if-exists, vendor/lge/p880/p880-vendor.mk)
