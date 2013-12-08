@@ -99,7 +99,6 @@ public class X3RIL extends RIL implements CommandsInterface {
 
                 // Forward responses that we are not overriding to the super class
                 super.processUnsolicited(p);
-                return;
         }
         switch(response) {
             case RIL_UNSOL_RESPONSE_RADIO_STATE_CHANGED:
@@ -168,7 +167,7 @@ public class X3RIL extends RIL implements CommandsInterface {
             p.setDataPosition(dataPosition);
 
             // Forward responses that we are not overriding to the super class
-            super.processSolicited(p);
+            super.processUnsolicited(p);
         }
 
 
