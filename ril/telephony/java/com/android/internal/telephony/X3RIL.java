@@ -102,8 +102,8 @@ public class X3RIL extends RIL implements CommandsInterface {
 		RILRequest rr = RILRequest.obtain(RIL_REQUEST_SET_NETWORK_SELECTION_MANUAL, response);
 		riljLog(rr.serialString() + "> "
 				+ requestToString(rr.mRequest) + " " + operatorNumeric);
-		rr.mp.writeInt(1);
-		rr.mp.writeString(operatorNumeric);
+		rr.mParcel.writeInt(1);
+		rr.mParcel.writeString(operatorNumeric);
 		send(rr);
 
 	}
