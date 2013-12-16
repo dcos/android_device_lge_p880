@@ -5,6 +5,7 @@ import static com.android.internal.telephony.RILConstants.*;
 import android.content.Context;
 import android.os.Message;
 import android.os.Parcel;
+import android.os.SystemService;
 
 import android.util.Log;
 
@@ -31,6 +32,11 @@ public class X3RIL extends RIL implements CommandsInterface {
 
         switch(response) {
             case RIL_UNSOL_RESPONSE_RADIO_STATE_CHANGED: ret =  responseVoid(p); break;
+            case RIL_UNSOL_LGE_BATTERY_LEVEL_UPDATE: ret =  responseVoid(p); break;
+            case RIL_UNSOL_LGE_XCALLSTAT: ret =  responseVoid(p); break;
+            case RIL_UNSOL_LGE_SELECTED_SPEECH_CODEC: ret =  responseVoid(p); break;
+            case RIL_UNSOL_LGE_SIM_STATE_CHANGED_NEW: ret =  responseVoid(p); break;
+            case RIL_UNSOL_LGE_RESTART_RILD: ret =  responseVoid(p); break;
             default:
                 // Rewind the Parcel
                 p.setDataPosition(dataPosition);
@@ -49,6 +55,21 @@ public class X3RIL extends RIL implements CommandsInterface {
                     //setNetworkSelectionModeAutomatic(null);
                 }
                 return;
+            case RIL_UNSOL_LGE_RESTART_RILD:
+                restartRild();
+                break;
+            case RIL_UNSOL_LGE_BATTERY_LEVEL_UPDATE:
+            case RIL_UNSOL_LGE_XCALLSTAT:
+            case RIL_UNSOL_LGE_SELECTED_SPEECH_CODEC:
+               if (RILJ_LOGD) riljLog("sinking LGE request > " + response);
+               break;
+            case RIL_UNSOL_LGE_SIM_STATE_CHANGED_NEW:
+                if (RILJ_LOGD) unsljLog(response);
+
+                if (mIccStatusChangedRegistrants != null) {
+                    mIccStatusChangedRegistrants.notifyRegistrants();
+                }
+                break;
         }
     }
 
@@ -107,6 +128,28 @@ public class X3RIL extends RIL implements CommandsInterface {
 		send(rr);
 
 	}
+
+     static final int RIL_UNSOL_LGE_BATTERY_LEVEL_UPDATE = 1050;
+     static final int RIL_UNSOL_LGE_XCALLSTAT = 1053;
+     static final int RIL_UNSOL_LGE_RESTART_RILD = 1055;
+     static final int RIL_UNSOL_LGE_SELECTED_SPEECH_CODEC = 1074;
+     static final int RIL_UNSOL_LGE_SIM_STATE_CHANGED_NEW = 1061;
+
+     private void restartRild() {
+        setRadioState(RadioState.RADIO_UNAVAILABLE);
+        SystemService.stop("ril-daemon");
+        RILRequest.resetSerial();
+
+        // Clear request list
+        clearRequestList(RADIO_NOT_AVAILABLE, false);
+        // Thread sleeps are ususally a terrible idea, but we do want the radio
+        // stack to back off for a bit
+        SystemService.start("ril-daemon");
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException ie) {}
+        setRadioState(RadioState.RADIO_ON);
+    }
 
     @Override
     protected Object responseSignalStrength(Parcel p) {
