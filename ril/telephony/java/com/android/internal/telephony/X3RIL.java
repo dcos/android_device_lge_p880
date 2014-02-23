@@ -3,36 +3,191 @@ package com.android.internal.telephony;
 import static com.android.internal.telephony.RILConstants.*;
 
 import android.content.Context;
-import android.os.AsyncResult;
-import android.os.Handler;
+import android.content.Intent;
+
 import android.os.Message;
 import android.os.Parcel;
-import android.os.SystemService;
+import android.os.Handler;
+import android.os.Registrant;
+import android.os.SystemProperties;
 
 import android.telephony.PhoneNumberUtils;
 
+import android.text.TextUtils;
+
+import java.lang.Thread;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.PrintWriter;
+
 public class X3RIL extends RIL implements CommandsInterface {
-    private boolean sentHwBootstrap = false;
+
+    protected Context mContext;
+
+    /* EternityProject: Unsolicited responses */
+    static final int RIL_UNSOL_LGE_STK_PROACTIVE_SESSION_STATUS = 1041;
+    static final int RIL_UNSOL_LGE_NETWORK_REGISTRATION_ERROR =   1047;
+    static final int RIL_UNSOL_LGE_PBREADY =                      1049;
+    static final int RIL_UNSOL_LGE_BATTERY_LEVEL_UPDATE =         1050;
+    static final int RIL_UNSOL_LGE_FACTORY_TEST_REQUEST =         1052;
+    static final int RIL_UNSOL_LGE_XCALLSTAT =                    1053;
+    static final int RIL_UNSOL_LGE_RESTART_RILD =                 1055;
+    static final int RIL_UNSOL_LGE_RESPONSE_PS_SIGNALING_STATUS = 1058;
+    static final int RIL_UNSOL_LGE_SIM_STATE_CHANGED_NEW =        1061;
+    static final int RIL_UNSOL_LGE_SELECTED_SPEECH_CODEC =        1074;
+    static final int RIL_UNSOL_LGE_FACTORY_READY =                1080;
+
+    /* EternityProject: Solicited responses */
+    static final int RIL_REQUEST_LGE_GET_SERVICE_CENTER_ADDR =    128;
+    static final int RIL_REQUEST_LGE_GET_MODEM_INFO =             246;
+    static final int RIL_REQUEST_LGE_SEND_COMMAND =               0x113;
+    static final int RIL_REQUEST_LGE_SET_GPRS_MOBILE_CLASS =      0x99;
+
+    /* Other variables */
+    static final String SELECTED_SPEECH_CODEC = "SelectedSpeechCodec";
+    private static String sRilRecoveryType = "UNKNOWN";
+    private static boolean isCPcrash = false;
 
     public X3RIL(Context context, int networkMode, int cdmaSubscription) {
         super(context, networkMode, cdmaSubscription);
+        mContext = context;
     }
 
-    @Override
     public void
-    getIMEI(Message result) {
-        //RIL_REQUEST_LGE_SEND_COMMAND 0
+    lgeSendCommand(int commandNumber) {
         RILRequest rrLSC = RILRequest.obtain(
-                0x113, null);
-        rrLSC.mParcel.writeInt(1);
-        rrLSC.mParcel.writeInt(0);
+              RIL_REQUEST_LGE_SEND_COMMAND, null);
+
+        rrLSC.mParcel.writeInt(0x1);
+        rrLSC.mParcel.writeInt(commandNumber);
+
+        if (RILJ_LOGD) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(rrLSC.serialString());
+            sb.append("> ");
+            sb.append(requestToString(rrLSC.mRequest));
+            sb.append(" ");
+            sb.append(commandNumber);
+
+            riljLog(sb.toString());
+        }
         send(rrLSC);
+    }
 
-        RILRequest rr = RILRequest.obtain(RIL_REQUEST_GET_IMEI, result);
+    static public boolean
+    isRILRecoveryEnable() {
+        return SystemProperties.get("ril.eprjrecovery").equals("1");
+    }
 
-        if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
+    static public boolean
+    isRILRecoveryProcessing() {
+       return SystemProperties.get("ril.reset_progress").equals("1");
+    }
 
-        send(rr);
+    static public boolean
+    isRILRecoveryProcessingData() {
+        return SystemProperties.get("ril.reset_progress_data").equals("1");
+    }
+
+    static public String
+    getRILRecoveryType() {
+        String type = sRilRecoveryType;
+
+        sRilRecoveryType = "UNKNOWN";
+
+        return type;
+    }
+
+    static public void
+    setRILRecoveryType(String type) {
+        sRilRecoveryType = type;
+        return;
+    }
+
+    public void
+    setATREADY() {
+        if (RILJ_LOGD) riljLog("EternityProject: setATREADY");
+        lgeSendCommand(0);
+    }
+
+    protected void
+    doRilRecovery() {
+        if (RILJ_LOGD) riljLog("EPRJ-RILJ: doRilRecovery()");
+
+        if (isRILRecoveryProcessing())
+            riljLog("EternityProject RIL Recovery is processing... doRilRecovery() end ###");
+        else
+            lgeSendCommand(0x2);
+
+        return;
+    }
+
+    private static void WriteFile(String file, String contents)
+    {
+        try
+        {
+            PrintWriter pr = new PrintWriter(file, "ISO-8859-1");
+            try
+            {
+                pr.write(contents);
+            }
+            finally
+            {
+                pr.close();
+            }
+        }
+        catch (IOException e)
+        {
+        }
+    }
+
+    protected void
+    eprjSetRadioPower(boolean enable) {
+        if (RILJ_LOGD) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("EternityProject: eprjSetRadioPower -- ");
+            sb.append(enable ? "powering up" : "powering down");
+            sb.append(" Radio HW.");
+            riljLog(sb.toString());
+        }
+
+        WriteFile("/sys/devices/platform/baseband_xmm_power/xmm_onoff", (enable ? "1" : "0") + '\n');
+    }
+
+    protected void
+    eprjRadioPowerCycle() {
+        try {
+            eprjSetRadioPower(false);
+            Thread.sleep(250);
+            eprjSetRadioPower(true);
+        } catch(InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    protected void
+    eprjHandleSpeechCodec(Object oldret) {
+        if (RILJ_LOGD) riljLog("EternityProject: Speech Codec Handle");
+
+        if (null == oldret) {
+            riljLog("EPRJ: ERROR: eprjHandleSpeechCodec: ret is NULL!!!");
+            return;
+        }
+
+        Intent SelectedSpeechCodecIntent = new Intent("com.lge.ril.SELECTED_SPEECH_CODEC");
+        String SelectedSpeechCodecString = (String)oldret;
+        int SelectedSpeechCodecNumber = Integer.parseInt(SelectedSpeechCodecString);
+
+        if (RILJ_LOGD) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("EPRJ: SelectedSpeechCodecNumber = ");
+            sb.append(SelectedSpeechCodecNumber);
+            riljLog(sb.toString());
+        }
+
+        SelectedSpeechCodecIntent.putExtra("SelectedSpeechCodec", SelectedSpeechCodecNumber);
+        mContext.sendBroadcast(SelectedSpeechCodecIntent);
     }
 
     @Override
@@ -57,54 +212,154 @@ public class X3RIL extends RIL implements CommandsInterface {
         send(rr);
     }
 
-    @Override
-    public void
-    setCallForward(int action, int cfReason, int serviceClass,
-                String number, int timeSeconds, Message response) {
-        RILRequest rr
-                = RILRequest.obtain(RIL_REQUEST_SET_CALL_FORWARD, response);
+    private boolean
+    isRildState(String state) {
+        String daemon_state = SystemProperties.get("init.svc.ril-daemon");
 
-        rr.mParcel.writeInt(action);
-        rr.mParcel.writeInt(cfReason);
-        if (serviceClass == 0)
-            serviceClass = 255;
-        rr.mParcel.writeInt(serviceClass);
-        rr.mParcel.writeInt(PhoneNumberUtils.toaFromString(number));
-        rr.mParcel.writeString(number);
-        rr.mParcel.writeInt (timeSeconds);
+        StringBuilder sb = new StringBuilder();
+        sb.append("isRildState init.svc.ril-daemon : ");
+        sb.append(daemon_state);
 
-        if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
-                    + " " + action + " " + cfReason + " " + serviceClass
-                    + timeSeconds);
+        if (RILJ_LOGD) riljLog(sb.toString());
 
-        send(rr);
+        if (daemon_state.equals(state))
+           return true;
+        else
+           return false;
     }
 
-    @Override
-    public void setCellInfoListRate(int rateInMillis, Message response) {
+    private void
+    clearRequestsList(int error, boolean loggable) {
+        int count = mRequestList.size();
+
+        if (loggable) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("WAKE_LOCK_TIMEOUT  mReqPending=");
+            //sb.append(mRequestMessagesPending);
+            sb.append(" mRequestList=");
+            sb.append(count);
+            riljLog("EternityProject RIL: " + sb.toString());
+        }
+
+        for (int i = 0; i <= count; i++) {
+            RILRequest rr = mRequestList.get(i);
+            if (loggable) {
+                StringBuilder sbr = new StringBuilder();
+                sbr.append(i);
+                sbr.append(": [");
+                sbr.append(rr.mSerial);
+                sbr.append("] ");
+                sbr.append(requestToString(rr.mRequest));
+                riljLog("EternityProject RIL: " + sbr.toString());
+            }
+            rr.onError(error, null);
+            rr.release();
+        }
+        mRequestList.clear();
+        //mRequestMessagesWaiting = 0;
+
         return;
     }
 
-    static final int RIL_UNSOL_LGE_BATTERY_LEVEL_UPDATE = 1050;
-    static final int RIL_UNSOL_LGE_XCALLSTAT = 1053;
-    static final int RIL_UNSOL_LGE_RESTART_RILD = 1055;
-    static final int RIL_UNSOL_LGE_SELECTED_SPEECH_CODEC = 1074;
-    static final int RIL_UNSOL_LGE_SIM_STATE_CHANGED_NEW = 1061;
+    protected void
+    lgeRestartRild() {
+        int retry2 = 0;
 
-    private void restartRild() {
-        setRadioState(RadioState.RADIO_UNAVAILABLE);
-        SystemService.stop("ril-daemon");
-        RILRequest.resetSerial();
+        if (RILJ_LOGD) {
+            riljLog("*********EPRJ_RILJ: LgeRestartRild Start");
+            riljLog("### Show RIL Recovery popup ###");
+        }
 
-        // Clear request list
-        clearRequestList(RADIO_NOT_AVAILABLE, false);
-        // Thread sleeps are ususally a terrible idea, but we do want the radio
-        // stack to back off for a bit
-        SystemService.start("ril-daemon");
         try {
-            Thread.sleep(500);
-        } catch (InterruptedException ie) {}
-        setRadioState(RadioState.RADIO_ON);
+            if (isRILRecoveryEnable())
+                if (isRILRecoveryProcessing()) {
+                    if (isCPcrash) {
+                        if (RILJ_LOGD) riljLog("EternityProject: CP Crash occurred during RIL recovery!!!!");
+                        isCPcrash = false;
+                        return;
+                    }
+                    if (RILJ_LOGD) riljLog("### RIL Recovery is processing... LgeRestartRild() end ###");
+                    return;
+                } else { 
+                    // Baseband is not available while recovery is in progress. Avoid SMS/calls loss.
+                    setRadioState(RadioState.RADIO_UNAVAILABLE);
+                    SystemProperties.set("ril.reset_progress", "1");
+                    SystemProperties.set("ril.reset_progress_data", "1");
+                    SystemProperties.set("ctl.stop", "ril-daemon");
+                    Thread.sleep(80);
+
+                    while (true) {
+                        if (isRildState("stopped")) {
+                            eprjRadioPowerCycle();
+                            SystemProperties.set("ctl.start", "ril-daemon");
+                            retry2 = 0;
+                            break;
+                        }
+                        Thread.sleep(500);
+                        if (RILJ_LOGD) riljLog("*********EternityProject: restartRild: Wait until stop");
+                        ++retry2;
+                        if (retry2 > 20)
+                            break;
+                    }
+
+                    while (true) {
+                        if (isRildState("running")) {
+                           // We powercycled the baseband, now it is available.
+                           setRadioState(RadioState.RADIO_ON);
+                           retry2 = 0;
+                           break;
+                        }
+                        Thread.sleep(500);
+                        if (RILJ_LOGD) riljLog("*********EternityProject: restartRild: Wait until running");
+                        ++retry2;
+                        if (retry2 > 20)
+                            break;
+                    }
+                }
+        } catch(InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+
+        try {
+            if (retry2 > 10) {
+                if (RILJ_LOGD) riljLog("*********EternityProject: restartRild: (Desperately) Start Rild Again");
+
+                SystemProperties.set("ctl.start", "ril-daemon");
+                retry2 = 0;
+
+                eprjRadioPowerCycle();
+
+                while (true) {
+                    if (isRildState("running") == true) {
+                       setRadioState(RadioState.RADIO_ON);
+                       retry2 = 0;
+                       break;
+                    }
+                    Thread.sleep(500);
+                    if (RILJ_LOGD) riljLog("*********EternityProject: restartRild: Wait until running");
+                    ++retry2;
+                   if (retry2 > 20) {
+                        if (RILJ_LOGD) riljLog("*********EternityProject: FATAL: Unable to restart RILD! Giving up!");
+                        break;
+                    }
+                }
+            }
+        } catch(InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+
+        // Build the intent and notify RIL recovery is in progress.
+        Intent intent = new Intent("lge.ril.intent.action.notify_ril_recovery");
+        String type = getRILRecoveryType();
+        intent.putExtra("lge.ril.intent.action.notify_ril_recovery", type);
+        mContext.sendBroadcast(intent);
+
+        // Reset RIL
+        RILRequest.resetSerial();
+        clearRequestsList(1, false);
+
+        riljLog("*********EternityProject: restartRild: END.");
+        return;
     }
 
     @Override
@@ -116,11 +371,13 @@ public class X3RIL extends RIL implements CommandsInterface {
 
         switch(response) {
             case RIL_UNSOL_RESPONSE_RADIO_STATE_CHANGED: ret =  responseVoid(p); break;
+            case RIL_UNSOL_LGE_PBREADY: ret =  responseVoid(p);
             case RIL_UNSOL_LGE_BATTERY_LEVEL_UPDATE: ret =  responseVoid(p); break;
             case RIL_UNSOL_LGE_XCALLSTAT: ret =  responseVoid(p); break;
-            case RIL_UNSOL_LGE_SELECTED_SPEECH_CODEC: ret =  responseVoid(p); break;
+            case RIL_UNSOL_LGE_RESTART_RILD: ret =  responseString(p); break;
+            case RIL_UNSOL_LGE_RESPONSE_PS_SIGNALING_STATUS: ret = responseVoid(p); break;
+            case RIL_UNSOL_LGE_SELECTED_SPEECH_CODEC: ret =  responseString(p); break;
             case RIL_UNSOL_LGE_SIM_STATE_CHANGED_NEW: ret =  responseVoid(p); break;
-            case RIL_UNSOL_LGE_RESTART_RILD: ret =  responseVoid(p); break;
             default:
                 // Rewind the Parcel
                 p.setDataPosition(dataPosition);
@@ -137,15 +394,30 @@ public class X3RIL extends RIL implements CommandsInterface {
                 super.processUnsolicited(p);
                 if (RadioState.RADIO_ON == newState) {
                     setNetworkSelectionModeAutomatic(null);
+                    SystemProperties.set("ctl.start", "insmod_rawip");
+                } else if (RadioState.RADIO_UNAVAILABLE == newState) {
+                    SystemProperties.set("ctl.start", "rmmod_rawip");
+                    eprjRadioPowerCycle();
                 }
                 return;
-            case RIL_UNSOL_LGE_RESTART_RILD:
-                restartRild();
+            case RIL_UNSOL_LGE_PBREADY:
+                if (RILJ_LOGD) riljLog("EternityProject: RIL_UNSOL_LGE_PBREADY");
+                setATREADY();
                 break;
-            case RIL_UNSOL_LGE_BATTERY_LEVEL_UPDATE:
+            case RIL_UNSOL_LGE_RESTART_RILD:
+                if (RILJ_LOGD) riljLog("EternityProject: RILD needs to be restarted!");
+                setRILRecoveryType((String)ret);
+                lgeRestartRild();
+                break;
+            case RIL_UNSOL_LGE_RESPONSE_PS_SIGNALING_STATUS:
+                if (RILJ_LOGD) riljLog("EternityProject: sinking LGE Signaling Status request");
+                break;
             case RIL_UNSOL_LGE_XCALLSTAT:
-            case RIL_UNSOL_LGE_SELECTED_SPEECH_CODEC:
+            case RIL_UNSOL_LGE_BATTERY_LEVEL_UPDATE:
                 if (RILJ_LOGD) riljLog("sinking LGE request > " + response);
+                break;
+            case RIL_UNSOL_LGE_SELECTED_SPEECH_CODEC:
+                eprjHandleSpeechCodec(ret);
                 break;
             case RIL_UNSOL_LGE_SIM_STATE_CHANGED_NEW:
                 if (RILJ_LOGD) unsljLog(response);
@@ -155,91 +427,6 @@ public class X3RIL extends RIL implements CommandsInterface {
                 }
                 break;
         }
-    }
-
-    @Override
-    protected RILRequest
-    processSolicited (Parcel p) {
-        int serial, error;
-        boolean found = false;
-        int dataPosition = p.dataPosition(); // save off position within the Parcel
-        serial = p.readInt();
-        error = p.readInt();
-
-        RILRequest rr = null;
-
-        /* Pre-process the reply before popping it */
-        synchronized (mRequestList) {
-            for (int i = 0, s = mRequestList.size() ; i < s ; i++) {
-                RILRequest tr = mRequestList.get(i);
-                if (tr != null && tr.mSerial == serial) {
-                    if (error == 0 || p.dataAvail() > 0) {
-                        try {switch (tr.mRequest) {
-                            /* Get those we're interested in */
-                            case 0x113:
-                                rr = tr;
-                                break;
-                        }} catch (Throwable thr) {
-                            // Exceptions here usually mean invalid RIL responses
-                            if (tr.mResult != null) {
-                                AsyncResult.forMessage(tr.mResult, null, thr);
-                                tr.mResult.sendToTarget();
-                            }
-                            return tr;
-                        }
-                    } 
-                }
-            }
-        }
-
-        if (rr == null) {
-            /* Nothing we care about, go up */
-            p.setDataPosition(dataPosition);
-
-            // Forward responses that we are not overriding to the super class
-            return super.processSolicited(p);
-        }
-
-        rr = findAndRemoveRequestFromList(serial);
-
-        if (rr == null) {
-            return rr;
-        }
-
-        Object ret = null;
-
-        if (error == 0 || p.dataAvail() > 0) {
-            switch (rr.mRequest) {
-                case 0x113: ret =  responseVoid(p); break;
-                default:
-                    throw new RuntimeException("Unrecognized solicited response: " + rr.mRequest);
-            }
-            //break;
-        }
-
-        switch (rr.mRequest) {
-            case 0x113:
-                riljLog(rr.serialString() + "< LGE_SEND_COMMAND"
-                        + " " + retToString(rr.mRequest, ret));
-                /* COMMAND 1 inits hardware-related properties. We
-                 * only need it once per power cycle */
-                if (!sentHwBootstrap) {
-                    RILRequest rrLSC = RILRequest.obtain(
-                            0x113, null);
-                    rrLSC.mParcel.writeInt(1);
-                    rrLSC.mParcel.writeInt(1);
-                    send(rrLSC);
-                    sentHwBootstrap = true;
-                }
-                break;
-        }
-
-        if (rr.mResult != null) {
-            AsyncResult.forMessage(rr.mResult, ret, null);
-            rr.mResult.sendToTarget();
-        }
-
-        return rr;
     }
 
 }
